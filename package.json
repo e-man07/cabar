@@ -39,7 +39,8 @@
     "build": "tsup src/index.ts src/langchain.ts --format esm,cjs --dts --clean --external @langchain/core",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
-    "example": "tsx examples/basic.ts"
+    "example": "tsx examples/basic.ts",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
   },
   "keywords": [
     "rag",
