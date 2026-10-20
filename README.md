@@ -310,4 +310,4 @@ npx tsx bench/hotpot-evidence.ts hotpot_dev_distractor_v1.json
 
 ## License
 
-[MIT](LICENSE) © Aman Jha. Built for MetaMemory, extracted as a standalone library.
+[MIT](LICENSE) © Aman Jha.
