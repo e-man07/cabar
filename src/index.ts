@@ -16,3 +16,5 @@ export { estimateTokens, recencyDecay, DEFAULT_RECENCY_DECAY_DAYS, CHAR4_COUNTER
 export type { Similarity } from './shared';
 export { normalizeScores } from './normalize';
 export type { NormalizeOptions } from './normalize';
+export { toContext, shadowReport } from './context';
+export type { ToContextOptions, ShadowReport } from './context';
