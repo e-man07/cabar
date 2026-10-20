@@ -65,6 +65,12 @@ export interface CabarSelectOptions {
   guaranteedTokens?: number;
   /** Deterministic "current time" for recency scoring. Defaults to `new Date()`. */
   now?: Date;
+  /**
+   * How hard long units are penalized: greedy density = utility / tokens^costExponent.
+   * 1 (default) = pure value per token, which favors short units. 0.5 softens it so a
+   * long unit that holds the answer can still win; 0 ignores length (pure utility order).
+   */
+  costExponent?: number;
   /** Injectable token cost model. Defaults to the char/4 estimator. */
   tokenCounter?: TokenCounter;
   /**
@@ -134,6 +140,7 @@ export const DEFAULTS: Required<Omit<CabarSelectOptions, 'now' | 'tokenCounter' 
   recencyDecayDays: DEFAULT_RECENCY_DECAY_DAYS,
   noveltyWeight: 1,
   guaranteedTokens: 0,
+  costExponent: 1,
 };
 
 /** Adaptive-mode-only defaults (fixed global constants, never tuned per query type). */
@@ -258,7 +265,7 @@ export class CabarSelector {
         const utility = utilityOf(u, selected);
         if (utility <= 0) continue; // no marginal benefit — don't spend budget on it
 
-        const density = cost > 0 ? utility / cost : Infinity;
+        const density = cost > 0 ? utility / Math.pow(cost, cfg.costExponent) : Infinity;
         if (!best || density > best.density) {
           best = { unit: u, utility, density };
         }

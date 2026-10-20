@@ -300,3 +300,21 @@ describe('CabarSelector tokenCounter', () => {
     expect(words.count(r.tailSummary)).toBeLessThanOrEqual(20);
   });
 });
+
+describe('CabarSelector costExponent', () => {
+  const long = { id: 'long', content: 'The answer: the deploy moved to Modal. ' + 'Background detail about the migration. '.repeat(20), score: 1 };
+  // Short units with no words in common, so none of them lowers another's novelty.
+  const topics = ['lunch menu', 'parking spots', 'holiday calendar', 'printer toner', 'coffee machine'];
+  const shorts: CabarUnit[] = topics.map((t, i) => ({ id: `s${i}`, content: `${t}.`, score: 0.5 }));
+  const pool = [long, ...shorts];
+
+  it('default (1) spends three slots on cheap short units and skips the long one', () => {
+    const r = CabarSelector.select(pool, 'where did the deploy move', { maxUnits: 3 });
+    expect(r.selected.map((u) => u.id)).not.toContain('long');
+  });
+
+  it('0 ignores length, so the most relevant unit is picked first', () => {
+    const r = CabarSelector.select(pool, 'where did the deploy move', { maxUnits: 3, costExponent: 0 });
+    expect(r.selected[0]!.id).toBe('long');
+  });
+});
