@@ -4,6 +4,14 @@
   "description": "Context-budget-aware retrieval: pick which retrieved chunks are worth the prompt tokens. Pure TypeScript, zero dependencies, no LLM calls.",
   "license": "MIT",
   "author": "Aman Jha (https://x.com/WhyParabola)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/e-man07/cabar.git"
+  },
+  "homepage": "https://github.com/e-man07/cabar#readme",
+  "bugs": {
+    "url": "https://github.com/e-man07/cabar/issues"
+  },
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
@@ -13,6 +21,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./langchain": {
+      "types": "./dist/langchain.d.ts",
+      "import": "./dist/langchain.js",
+      "require": "./dist/langchain.cjs"
     }
   },
   "files": [
@@ -23,7 +36,7 @@
   ],
   "sideEffects": false,
   "scripts": {
-    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
+    "build": "tsup src/index.ts src/langchain.ts --format esm,cjs --dts --clean --external @langchain/core",
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "example": "tsx examples/basic.ts"
@@ -40,7 +53,16 @@
     "compression",
     "prompt"
   ],
+  "peerDependencies": {
+    "@langchain/core": ">=0.3.0"
+  },
+  "peerDependenciesMeta": {
+    "@langchain/core": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@langchain/core": "^1.2.13",
     "@types/node": "^22.10.2",
     "tsup": "8.3.5",
     "tsx": "4.19.2",
