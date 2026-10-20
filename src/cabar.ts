@@ -71,6 +71,8 @@ export interface CabarSelectOptions {
    * long unit that holds the answer can still win; 0 ignores length (pure utility order).
    */
   costExponent?: number;
+  /** Also return `decisions`: why each unit was selected, summarized into the tail, or dropped. */
+  explain?: boolean;
   /** Injectable token cost model. Defaults to the char/4 estimator. */
   tokenCounter?: TokenCounter;
   /**
@@ -121,17 +123,33 @@ export interface CabarStats {
   utilizedTokens: number;
 }
 
+export interface CabarDecision {
+  id: string;
+  status: 'selected' | 'tail' | 'dropped';
+  /** Plain-English reason, e.g. "redundant with u3 (similarity 0.82)". */
+  reason: string;
+  tokens: number;
+  relevance: number;
+  recency: number;
+  /** 1 − highest similarity to any (other) selected unit. */
+  novelty: number;
+  /** For redundant units: the selected unit it overlaps most. */
+  redundantWith?: string;
+}
+
 export interface CabarSelectResult {
   selected: CabarUnit[];
   /** Unselected units at or above tauFloor — summarized into tailSummary, not dropped. */
   tail: CabarUnit[];
   tailSummary: string;
   stats: CabarStats;
+  /** Present when `explain: true`, one entry per input unit in input order. */
+  decisions?: CabarDecision[];
 }
 
 /** Fixed-mode selector defaults. Exported so `cabar.config.ts` can source the
  * budget/maxUnits ceilings from one place instead of re-declaring the literals. */
-export const DEFAULTS: Required<Omit<CabarSelectOptions, 'now' | 'tokenCounter' | 'similarity' | 'adaptive' | 'minKeep' | 'relFloor' | 'novFloor' | 'maxCeilingTokens' | 'capToMaxUnits'>> = {
+export const DEFAULTS: Required<Omit<CabarSelectOptions, 'now' | 'tokenCounter' | 'similarity' | 'explain' | 'adaptive' | 'minKeep' | 'relFloor' | 'novFloor' | 'maxCeilingTokens' | 'capToMaxUnits'>> = {
   budgetTokens: 4000,
   maxUnits: 8,
   tailBudgetTokens: 600,
@@ -291,6 +309,7 @@ export class CabarSelector {
     }
 
     // --- Best-single-vs-greedy swap (budgeted-max-coverage guarantee) ---
+    let swapped = false;
     // maxUnits is ignored in adaptive mode, so the guard is unconditional then.
     if (adaptive || cfg.maxUnits >= 1) {
       let bestSingle: { unit: CabarUnit; utility: number } | null = null;
@@ -303,6 +322,7 @@ export class CabarSelector {
         }
       }
       if (bestSingle && bestSingle.utility > greedyTotalUtility) {
+        swapped = true;
         selected.length = 0;
         selected.push(bestSingle.unit);
         selectedIds.clear();
@@ -330,7 +350,7 @@ export class CabarSelector {
     }
     const tailSummaryTokens = count(tailSummary);
 
-    return {
+    const result: CabarSelectResult = {
       selected,
       tail,
       tailSummary,
@@ -343,6 +363,38 @@ export class CabarSelector {
         utilizedTokens: cfg.guaranteedTokens + selectedTokens + tailSummaryTokens,
       },
     };
+    if (!opts.explain) return result;
+
+    // --- Explanations (computed after the fact; selection above is unaffected) ---
+    const sim = (a: CabarUnit, b: CabarUnit) => (opts.similarity ? opts.similarity(a, b) : jaccard(tokensOf.get(a.id)!, tokensOf.get(b.id)!));
+    const unitCap = !adaptive || capToMaxUnits;
+    result.decisions = units.map((u) => {
+      const tokens = costOf.get(u.id)!;
+      const others = selected.filter((s) => s.id !== u.id);
+      let maxSim = 0;
+      let closest: string | undefined;
+      for (const s of others) {
+        const v = sim(u, s);
+        if (v > maxSim) [maxSim, closest] = [v, s.id];
+      }
+      const base = { id: u.id, tokens, relevance: u.score, recency: recencyOf(u), novelty: 1 - maxSim };
+      if (selectedIds.has(u.id)) {
+        return { ...base, status: 'selected' as const, reason: swapped ? 'best single unit: worth more alone than the greedy set' : 'selected' };
+      }
+      if (u.score < cfg.tauFloor) {
+        return { ...base, status: 'dropped' as const, reason: `relevance ${u.score.toFixed(2)} is below tauFloor ${cfg.tauFloor}` };
+      }
+      let reason: string;
+      if (swapped) reason = 'a single unit beat the greedy set';
+      else if (maxSim >= 1 - (adaptive ? novFloor : 0.2) && closest)
+        reason = `redundant with ${closest} (similarity ${maxSim.toFixed(2)})`;
+      else if (selectedTokens + tokens > remainingBudget) reason = `doesn't fit: needs ${tokens} tokens, ${Math.max(0, remainingBudget - selectedTokens)} left`;
+      else if (unitCap && selected.length >= cfg.maxUnits) reason = `maxUnits (${cfg.maxUnits}) reached`;
+      else if (adaptive && u.score / (topScore || 1) < relFloor) reason = `below the adaptive relevance cliff (${(u.score / (topScore || 1)).toFixed(2)} of the top score)`;
+      else reason = 'adaptive stop: lower value per token than what was kept';
+      return { ...base, status: 'tail' as const, reason, ...(reason.startsWith('redundant') ? { redundantWith: closest } : {}) };
+    });
+    return result;
   }
 }
 

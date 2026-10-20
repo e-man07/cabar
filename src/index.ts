@@ -1,5 +1,5 @@
 export { CabarSelector, DEFAULTS, ADAPTIVE_DEFAULTS } from './cabar';
-export type { CabarUnit, CabarSelectOptions, CabarSelectResult, CabarStats } from './cabar';
+export type { CabarUnit, CabarSelectOptions, CabarSelectResult, CabarStats, CabarDecision } from './cabar';
 export { PrismSelector } from './prism';
 export type {
   PrismUnit,
