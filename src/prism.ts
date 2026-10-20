@@ -29,7 +29,7 @@
  *     silently dropped.
  */
 
-import { CHAR4_COUNTER, DEFAULT_RECENCY_DECAY_DAYS, recencyDecay, stripUndefined, type TokenCounter } from './shared';
+import { CHAR4_COUNTER, DEFAULT_RECENCY_DECAY_DAYS, recencyDecay, stripUndefined, type Similarity, type TokenCounter } from './shared';
 import { extract, mention, claimsRendering, verbatim, tokenize, jaccard, truncateToTokens } from './renderings';
 
 // ---------------------------------------------------------------------------
@@ -53,6 +53,8 @@ export interface PrismUnit {
   timestamp?: Date;
   /** Pre-resolved claim strings; enables the CLAIMS fidelity. Selector never fetches these. */
   claims?: string[];
+  /** Optional vector for `similarity: embeddingSimilarity`. */
+  embedding?: ArrayLike<number>;
 }
 
 /** Per-fidelity multipliers φ(f) — how much utility a fidelity retains vs verbatim. */
@@ -79,6 +81,11 @@ export interface PrismSelectOptions {
   now?: Date;
   /** Injectable token cost model. Defaults to the shared char/4 estimator. */
   tokenCounter?: TokenCounter;
+  /**
+   * Unit-level similarity used for novelty, in [0, 1]. Defaults to word-set
+   * Jaccard between the renderings. Pass `embeddingSimilarity` to catch paraphrases.
+   */
+  similarity?: Similarity<PrismUnit>;
   /** Per-fidelity utility multipliers φ. Merged over defaults. */
   fidelityFactors?: Partial<FidelityFactors>;
   /** β — multiplicative bonus ×(1+β) for re-selecting a unit at ≥ prev fidelity. */
@@ -144,6 +151,7 @@ const DEFAULTS: Required<
     PrismSelectOptions,
     | 'now'
     | 'tokenCounter'
+    | 'similarity'
     | 'fidelityFactors'
     | 'prevSelected'
     | 'adaptive'
@@ -282,11 +290,11 @@ export class PrismSelector {
 
     // Novelty of a token-set vs the CHOSEN renderings of already-selected units
     // (excluding `excludeId` so an upgrade isn't penalized against itself).
-    const noveltyOf = (tokens: Set<string>, excludeId: string | null): number => {
+    const noveltyOf = (u: PrismUnit, tokens: Set<string>, excludeId: string | null): number => {
       let maxSim = 0;
       for (const [id, r] of chosen) {
         if (id === excludeId) continue;
-        const sim = jaccard(tokens, r.tokens);
+        const sim = opts.similarity ? opts.similarity(u, unitById.get(id)!) : jaccard(tokens, r.tokens);
         if (sim > maxSim) maxSim = sim;
       }
       return 1 - maxSim;
@@ -294,7 +302,7 @@ export class PrismSelector {
 
     // Utility g(u, rendering) with novelty vs chosen (minus excludeId) and β.
     const utilityOf = (u: PrismUnit, r: Rendering, excludeId: string | null): number => {
-      const noveltyRaw = noveltyOf(r.tokens, excludeId);
+      const noveltyRaw = noveltyOf(u, r.tokens, excludeId);
       const effectiveNovelty = 1 - cfg.noveltyWeight * (1 - noveltyRaw);
       let g = u.score * recencyOf(u) * effectiveNovelty * r.phi;
       const pr = prevRank.get(u.id);
@@ -339,7 +347,7 @@ export class PrismSelector {
             // moves (the `else` branch below) are never gated.
             if (adaptive && chosen.size >= minKeep) {
               const relFrac = u.score / (topScore || 1);
-              const nov = noveltyOf(r.tokens, null);
+              const nov = noveltyOf(u, r.tokens, null);
               if (relFrac < relFloor || nov < novFloor) continue;
             }
             const deltaG = utilityOf(u, r, null);

@@ -26,6 +26,34 @@ export interface TokenCounter {
 /** Provider-agnostic default counter: the char/4 heuristic. */
 export const CHAR4_COUNTER: TokenCounter = { name: 'char4', count: estimateTokens };
 
+/**
+ * Similarity between two units in [0, 1], used for the novelty term in place
+ * of the built-in word-set Jaccard. 1 = same content, 0 = unrelated.
+ */
+export type Similarity<T> = (a: T, b: T) => number;
+
+/** Cosine similarity of two equal-length vectors, clamped to [0, 1]. */
+export function cosineSimilarity(a: ArrayLike<number>, b: ArrayLike<number>): number {
+  if (a.length !== b.length) throw new RangeError('cosineSimilarity: vectors must have the same length');
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    dot += a[i]! * b[i]!;
+    na += a[i]! * a[i]!;
+    nb += b[i]! * b[i]!;
+  }
+  if (na === 0 || nb === 0) return 0;
+  return Math.max(0, Math.min(1, dot / Math.sqrt(na * nb)));
+}
+
+/**
+ * Ready-made `similarity` option: cosine over each unit's `embedding`.
+ * Catches paraphrases that word overlap misses. Throws if a unit has no embedding.
+ */
+export function embeddingSimilarity<T extends { id: string; embedding?: ArrayLike<number> }>(a: T, b: T): number {
+  if (!a.embedding || !b.embedding) throw new Error(`embeddingSimilarity: unit ${!a.embedding ? a.id : b.id} has no embedding`);
+  return cosineSimilarity(a.embedding, b.embedding);
+}
+
 /** Default recency scale in days: score = e^(-age / 365). */
 export const DEFAULT_RECENCY_DECAY_DAYS = 365;
 

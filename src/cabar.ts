@@ -19,7 +19,7 @@
  * function of its inputs.
  */
 
-import { CHAR4_COUNTER, DEFAULT_RECENCY_DECAY_DAYS, recencyDecay, stripUndefined, type TokenCounter } from './shared';
+import { CHAR4_COUNTER, DEFAULT_RECENCY_DECAY_DAYS, recencyDecay, stripUndefined, type Similarity, type TokenCounter } from './shared';
 import { truncateToTokens as truncateWithCounter } from './renderings';
 
 // ---------------------------------------------------------------------------
@@ -32,6 +32,8 @@ export interface CabarUnit {
   /** Relevance from your retriever, normalized to [0,1] (top item ideally 1.0). */
   score: number;
   timestamp?: Date;
+  /** Optional vector for `similarity: embeddingSimilarity`. */
+  embedding?: ArrayLike<number>;
 }
 
 export interface CabarSelectOptions {
@@ -65,6 +67,11 @@ export interface CabarSelectOptions {
   now?: Date;
   /** Injectable token cost model. Defaults to the char/4 estimator. */
   tokenCounter?: TokenCounter;
+  /**
+   * Similarity used for novelty, in [0, 1]. Defaults to word-set Jaccard.
+   * Pass `embeddingSimilarity` (with `embedding` on each unit) to catch paraphrases.
+   */
+  similarity?: Similarity<CabarUnit>;
   /**
    * Adaptive stopping mode. When true, the greedy loop's
    * stop condition is replaced: instead of the fixed `budgetTokens`/`maxUnits`
@@ -118,7 +125,7 @@ export interface CabarSelectResult {
 
 /** Fixed-mode selector defaults. Exported so `cabar.config.ts` can source the
  * budget/maxUnits ceilings from one place instead of re-declaring the literals. */
-export const DEFAULTS: Required<Omit<CabarSelectOptions, 'now' | 'tokenCounter' | 'adaptive' | 'minKeep' | 'relFloor' | 'novFloor' | 'maxCeilingTokens' | 'capToMaxUnits'>> = {
+export const DEFAULTS: Required<Omit<CabarSelectOptions, 'now' | 'tokenCounter' | 'similarity' | 'adaptive' | 'minKeep' | 'relFloor' | 'novFloor' | 'maxCeilingTokens' | 'capToMaxUnits'>> = {
   budgetTokens: 4000,
   maxUnits: 8,
   tailBudgetTokens: 600,
@@ -218,7 +225,7 @@ export class CabarSelector {
       const a = tokensOf.get(u.id)!;
       let maxSim = 0;
       for (const s of selectedSoFar) {
-        const sim = jaccard(a, tokensOf.get(s.id)!);
+        const sim = opts.similarity ? opts.similarity(u, s) : jaccard(a, tokensOf.get(s.id)!);
         if (sim > maxSim) maxSim = sim;
       }
       return 1 - maxSim;
