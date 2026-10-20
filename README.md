@@ -137,7 +137,7 @@ Prism only: `tokenCounter`, `fidelityFactors`, `hysteresisBonus`, `prevSelected`
 2. Each selector picks from those 24 turns.
 3. The script counts how many of the turns LongMemEval marks as answer evidence survive, and what they cost.
 
-The 57 questions where BM25 missed all evidence are skipped, leaving 443. Full per-type tables: [`bench/results.md`](bench/results.md).
+The 57 questions where BM25 missed all evidence are skipped, leaving 443. Full per-type tables: [`bench/longmemeval-results.md`](bench/longmemeval-results.md).
 
 | Selector | Evidence kept verbatim | All evidence kept | Evidence kept or in tail | Avg tokens | Tokens saved |
 |---|---|---|---|---|---|
