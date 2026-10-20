@@ -1,5 +1,5 @@
 // Run: npm run example
-import { CabarSelector, PrismSelector, estimateTokens } from '../src';
+import { CabarSelector, PrismSelector, estimateTokens, toContext } from '../src';
 
 // What your retriever returned for one query: 12 chunks, scores normalized to [0, 1].
 // Lots of near-duplicates and weak hits, like a real agent-memory pool.
@@ -29,6 +29,13 @@ const cabar = CabarSelector.select(chunks, query, { now, adaptive: true, capToMa
 console.log('CABAR selected:', cabar.selected.map((u) => u.id).join(', '));
 console.log('CABAR tail summary:\n' + cabar.tailSummary);
 console.log(`tokens: send-all ${sendAll} → cabar ${cabar.stats.selectedTokens} selected + ${cabar.stats.tailSummaryTokens} tail\n`);
+
+// Why each chunk was kept, tailed or dropped.
+const explained = CabarSelector.select(chunks, query, { now, explain: true });
+for (const d of explained.decisions!) console.log(`${d.id.padEnd(4)} ${d.status.padEnd(8)} ${d.reason}`);
+
+// The prompt text.
+console.log('\n--- context ---\n' + toContext(explained) + '\n');
 
 // Prism: same idea, but each chunk can also be sent as an extract, its claims, or a one-line mention.
 const prism = PrismSelector.select(chunks, query, { now, budgetTokens: 150 });
