@@ -1,5 +1,5 @@
 {
-  "name": "cabar",
+  "name": "@whyparabola/cabar",
   "version": "0.1.0",
   "description": "Context-budget-aware retrieval: pick which retrieved chunks are worth the prompt tokens. Pure TypeScript, zero dependencies, no LLM calls.",
   "license": "MIT",

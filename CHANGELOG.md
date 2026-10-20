@@ -12,7 +12,7 @@ First release, extracted from MetaMemory.
 - `costExponent` option to soften the per-token preference for short chunks.
 - `explain` option: a reason for every chunk.
 - `toContext` and `shadowReport` helpers.
-- `cabar/langchain`: `CabarCompressor` for LangChain.js.
+- `@whyparabola/cabar/langchain`: `CabarCompressor` for LangChain.js.
 - `recencyDecayDays` option.
 - Benchmarks: LongMemEval-S evidence recall, HotpotQA multi-hop evidence.
 - 100 tests, including property tests on 500 random pools.

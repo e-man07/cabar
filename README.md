@@ -7,7 +7,7 @@ Pure TypeScript. Zero dependencies. No LLM calls, no I/O, embeddings optional. D
 On LongMemEval-S it keeps **90% of the answer evidence with 79% fewer tokens**, where top-k at the same token spend keeps 79%. In a 72B-reader run on multi-session questions, accuracy went from **35% to 80%** with 84% fewer tokens, because the reader stopped drowning in context. ([Results](#results), including where it loses.)
 
 ```
-npm install cabar
+npm install @whyparabola/cabar
 ```
 
 ---
@@ -68,7 +68,7 @@ Prism also emits selected chunks in **timestamp order, not score order**, so the
 ## Usage
 
 ```ts
-import { CabarSelector, normalizeScores, toContext } from 'cabar';
+import { CabarSelector, normalizeScores, toContext } from '@whyparabola/cabar';
 
 const hits = await retrieve(query); // [{ id, content, score, timestamp? }]
 
@@ -93,7 +93,7 @@ console.log(`${result.stats.candidateTokens} → ${result.stats.utilizedTokens} 
 
 ```ts
 import { generateText } from 'ai';
-import { CabarSelector, normalizeScores, toContext } from 'cabar';
+import { CabarSelector, normalizeScores, toContext } from '@whyparabola/cabar';
 
 const result = CabarSelector.select(normalizeScores(hits), question, { budgetTokens: 2000 });
 
@@ -106,11 +106,11 @@ const { text } = await generateText({
 
 ### LangChain.js
 
-`cabar/langchain` is a document compressor. Drop it into `ContextualCompressionRetriever`:
+`@whyparabola/cabar/langchain` is a document compressor. Drop it into `ContextualCompressionRetriever`:
 
 ```ts
 import { ContextualCompressionRetriever } from '@langchain/classic/retrievers/contextual_compression'; // 'langchain/retrievers/contextual_compression' on LangChain 0.3
-import { CabarCompressor } from 'cabar/langchain';
+import { CabarCompressor } from '@whyparabola/cabar/langchain';
 
 const retriever = new ContextualCompressionRetriever({
   baseCompressor: new CabarCompressor({ budgetTokens: 2000 }),
@@ -128,7 +128,7 @@ const retriever = new ContextualCompressionRetriever({
 The default novelty check is word overlap, so it misses paraphrases. If your chunks already have embeddings, use those instead:
 
 ```ts
-import { CabarSelector, embeddingSimilarity } from 'cabar';
+import { CabarSelector, embeddingSimilarity } from '@whyparabola/cabar';
 
 // each chunk: { id, content, score, embedding: number[] }
 const result = CabarSelector.select(chunks, query, { similarity: embeddingSimilarity });
@@ -147,7 +147,7 @@ CabarSelector.select(chunks, query, { tokenCounter: { name: 'o200k', count: (t) 
 ### See why, and try it in shadow mode
 
 ```ts
-import { CabarSelector, shadowReport } from 'cabar';
+import { CabarSelector, shadowReport } from '@whyparabola/cabar';
 
 const { decisions } = CabarSelector.select(chunks, query, { explain: true });
 // [{ id: 'u7', status: 'tail', reason: 'redundant with u2 (similarity 0.91)', tokens: 84, ... }, ...]
@@ -164,7 +164,7 @@ Shadow mode is the safe rollout:
 ### Prism
 
 ```ts
-import { PrismSelector, toContext } from 'cabar';
+import { PrismSelector, toContext } from '@whyparabola/cabar';
 
 const result = PrismSelector.select(chunksWithClaims, query, { budgetTokens: 2000 });
 for (const s of result.selected) console.log(s.unit.id, s.fidelity, s.rendered);

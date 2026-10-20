@@ -2,7 +2,7 @@
  * LangChain.js adapter: CABAR as a document compressor.
  *
  *   import { ContextualCompressionRetriever } from '@langchain/classic/retrievers/contextual_compression';
- *   import { CabarCompressor } from 'cabar/langchain';
+ *   import { CabarCompressor } from '@whyparabola/cabar/langchain';
  *
  *   const retriever = new ContextualCompressionRetriever({
  *     baseCompressor: new CabarCompressor({ budgetTokens: 2000 }),
