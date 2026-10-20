@@ -13,3 +13,5 @@ export type {
 } from './prism';
 export { verbatim, extract, claimsRendering, mention, tokenize, jaccard, splitSentences, truncateToTokens } from './renderings';
 export { estimateTokens, recencyDecay, DEFAULT_RECENCY_DECAY_DAYS } from './shared';
+export { normalizeScores } from './normalize';
+export type { NormalizeOptions } from './normalize';
