@@ -2,12 +2,12 @@
 
 **Context-Budget-Aware Retrieval.** Your retriever found 24 chunks. CABAR decides which ones are actually worth the prompt tokens, sends those, and squeezes the rest into a short tail instead of dropping them.
 
-Pure TypeScript. Zero dependencies. No LLM calls, no embeddings, no I/O. Deterministic: same input, same output.
+Pure TypeScript. Zero dependencies. No LLM calls, no I/O, embeddings optional. Deterministic: same input, same output.
 
 On LongMemEval-S it keeps **90% of the answer evidence with 79% fewer tokens**, where top-k at the same token spend keeps 79%. In a 72B-reader run on multi-session questions, accuracy went from **35% to 80%** with 84% fewer tokens, because the reader stopped drowning in context. ([Results](#results), including where it loses.)
 
 ```
-npm install github:e-man07/cabar
+npm install cabar
 ```
 
 ---
@@ -68,38 +68,107 @@ Prism also emits selected chunks in **timestamp order, not score order**, so the
 ## Usage
 
 ```ts
-import { CabarSelector } from 'cabar';
+import { CabarSelector, normalizeScores, toContext } from 'cabar';
 
-const chunks = await retrieve(query); // [{ id, content, score, timestamp? }]
+const hits = await retrieve(query); // [{ id, content, score, timestamp? }]
 
-const { selected, tailSummary, stats } = CabarSelector.select(chunks, query); // ≤ 8 chunks, ≤ 4000 tokens
+const result = CabarSelector.select(normalizeScores(hits), query); // ≤ 8 chunks, ≤ 4000 tokens
+const context = toContext(result); // selected chunks + "Other possibly relevant notes:" tail
 
-const context = [
-  ...selected.map((c) => c.content),
-  tailSummary && `Other possibly relevant notes:\n${tailSummary}`,
-].filter(Boolean).join('\n\n');
-
-console.log(`${stats.candidateTokens} → ${stats.utilizedTokens} tokens`);
+console.log(`${result.stats.candidateTokens} → ${result.stats.utilizedTokens} tokens`);
 ```
 
-**Start with the defaults.** In the evidence benchmark below, fixed CABAR had the best balance of evidence kept and tokens spent.
+**Normalize your scores first.** CABAR expects relevance in [0, 1] with the best hit near 1. `tauFloor` and the adaptive cliff are fractions of that scale. Raw scores rarely fit:
+- Cosine similarities bunch up in 0.7–0.85, so nothing ever falls below `tauFloor`.
+- BM25 and reranker logits are unbounded.
+- Vector-store distances run the wrong way.
 
-**Capped-adaptive** (`adaptive: true, capToMaxUnits: true`) saves more tokens (87% vs 79%) by stopping at the relevance cliff, but it keeps less evidence verbatim (75% vs 90%), though most of the rest still reaches the prompt through the tail. How early it stops depends on the shape of your scores: a retriever whose scores fall off steeply makes it stop sooner. Try it in shadow mode against your own pools before switching.
+`normalizeScores(hits)` maps any of them to [0, 1] (min-max by default). For distances, pass `{ higherIsBetter: false }`.
 
-Prism:
+**Start with the defaults.** In the evidence benchmarks below, fixed CABAR had the best balance of evidence kept and tokens spent.
+
+**Capped-adaptive** (`adaptive: true, capToMaxUnits: true`) saves more tokens (87% vs 79%) by stopping at the relevance cliff. The cost: it keeps less evidence verbatim (75% vs 90%), though most of the rest still reaches the prompt through the tail. How early it stops depends on the shape of your scores. Try it in shadow mode against your own pools before switching.
+
+### Vercel AI SDK (or any LLM call)
 
 ```ts
-import { PrismSelector } from 'cabar';
-import { encode } from 'gpt-tokenizer'; // optional: exact token costs
+import { generateText } from 'ai';
+import { CabarSelector, normalizeScores, toContext } from 'cabar';
 
-const result = PrismSelector.select(chunksWithClaims, query, {
-  budgetTokens: 2000,
-  tokenCounter: { name: 'o200k', count: (t) => encode(t).length },
+const result = CabarSelector.select(normalizeScores(hits), question, { budgetTokens: 2000 });
+
+const { text } = await generateText({
+  model,
+  system: `Answer from these notes:\n\n${toContext(result, { format: (t, id) => `<note id="${id}">${t}</note>` })}`,
+  prompt: question,
 });
+```
 
-for (const s of result.selected) {
-  console.log(s.unit.id, s.fidelity, s.rendered);
-}
+### LangChain.js
+
+`cabar/langchain` is a document compressor. Drop it into `ContextualCompressionRetriever`:
+
+```ts
+import { ContextualCompressionRetriever } from '@langchain/classic/retrievers/contextual_compression'; // 'langchain/retrievers/contextual_compression' on LangChain 0.3
+import { CabarCompressor } from 'cabar/langchain';
+
+const retriever = new ContextualCompressionRetriever({
+  baseCompressor: new CabarCompressor({ budgetTokens: 2000 }),
+  baseRetriever: vectorStore.asRetriever(24),
+});
+```
+
+- **Scores:** it reads them from `metadata.relevance_score` or `metadata.score` and normalizes them. If they're missing, it falls back to the retriever's order.
+- **Tail:** it comes back as one extra `Document` with `metadata.cabar = 'tail'`. Pass `includeTail: false` to skip it.
+
+`@langchain/core` is an optional peer dependency.
+
+### Catch paraphrases with embeddings
+
+The default novelty check is word overlap, so it misses paraphrases. If your chunks already have embeddings, use those instead:
+
+```ts
+import { CabarSelector, embeddingSimilarity } from 'cabar';
+
+// each chunk: { id, content, score, embedding: number[] }
+const result = CabarSelector.select(chunks, query, { similarity: embeddingSimilarity });
+```
+
+Any `(a, b) => number` in [0, 1] works as `similarity`. It's available in both selectors.
+
+### Exact token counts
+
+```ts
+import { encode } from 'gpt-tokenizer';
+
+CabarSelector.select(chunks, query, { tokenCounter: { name: 'o200k', count: (t) => encode(t).length } });
+```
+
+### See why, and try it in shadow mode
+
+```ts
+import { CabarSelector, shadowReport } from 'cabar';
+
+const { decisions } = CabarSelector.select(chunks, query, { explain: true });
+// [{ id: 'u7', status: 'tail', reason: 'redundant with u2 (similarity 0.91)', tokens: 84, ... }, ...]
+
+const report = shadowReport(chunks, query); // doesn't change what you send
+log({ saved: report.savedFraction, dropped: report.droppedIds });
+```
+
+Shadow mode is the safe rollout:
+1. Keep sending what you send today.
+2. Log what CABAR would have sent.
+3. Compare answers on a sample, then switch.
+
+### Prism
+
+```ts
+import { PrismSelector, toContext } from 'cabar';
+
+const result = PrismSelector.select(chunksWithClaims, query, { budgetTokens: 2000 });
+for (const s of result.selected) console.log(s.unit.id, s.fidelity, s.rendered);
+const context = toContext(result);
 ```
 
 Run the example: `npm run example` (source: [`examples/basic.ts`](examples/basic.ts)).
@@ -119,14 +188,18 @@ Both selectors share these (Prism's defaults in parentheses where different):
 | `noveltyWeight` | 1 | 0 = ignore redundancy, 1 = full MMR-style novelty |
 | `guaranteedTokens` | 0 | Tokens you've already spent (system prompt, a facts block), pre-charged against the budget |
 | `now` | `new Date()` | Pass a fixed date for reproducible results |
+| `tokenCounter` | chars / 4 | `{ name, count(text) }`, e.g. a real BPE tokenizer |
+| `similarity` | word-set Jaccard | `(a, b) => [0, 1]` for novelty, e.g. `embeddingSimilarity` |
 | `adaptive` | false | Enable the relevance-cliff/novelty stopping rule |
 | `minKeep` | 3 | Chunks kept before the adaptive rule can stop |
 | `relFloor` | 0.4 | Adaptive: stop below this fraction of the top score |
 | `novFloor` | 0.2 | Adaptive: stop below this novelty |
 | `maxCeilingTokens` | 4000 | Adaptive: the hard token bound (replaces `budgetTokens`) |
 | `capToMaxUnits` | false | CABAR only: adaptive also respects `maxUnits` |
+| `costExponent` | 1 | CABAR only: density = utility / tokens^x. Lower it (0.5) when answers live in long chunks |
+| `explain` | false | CABAR only: return `decisions`, the reason for every chunk |
 
-Prism only: `tokenCounter`, `fidelityFactors`, `hysteresisBonus`, `prevSelected`, and `claims?: string[]` on each chunk.
+Prism only: `fidelityFactors`, `hysteresisBonus`, `prevSelected`, and `claims?: string[]` on each chunk.
 
 ## Results
 
@@ -151,9 +224,27 @@ The 57 questions where BM25 missed all evidence are skipped, leaving 443. Full p
 
 - **Multi-session questions** (118), where the answer is spread across several sessions: CABAR keeps 87.8% of the evidence, top-k at the same spend 65.9%, top-8 75.5%. Removing duplicates makes room for the second and third piece of evidence.
 - **Where it loses:** on single-session-assistant questions (52), the evidence is usually one long assistant reply. CABAR ranks by utility *per token*, so it keeps 88.5% verbatim vs 94.2% for top-k (the tail still reaches 98.1%). Capped-adaptive drops to 61.5%.
+- **`costExponent: 0.5` fixes that case** (94.2%, level with top-k), but overall evidence drops to 88.8% and token savings to 73%. That's why it's an option, not the default.
 - BM25 plus min-max normalization is a weak, steep-scoring retriever. Your numbers will move with your retriever.
 
-### 2. Answer accuracy with a 72B reader (from MetaMemory)
+### 2. Multi-hop evidence on HotpotQA (reproducible, no LLM)
+
+[`bench/hotpot-evidence.ts`](bench/hotpot-evidence.ts) runs in 4 seconds on all 7,405 dev questions (distractor setting):
+- Each question comes with 10 paragraphs: the 2 it needs and 8 distractors chosen to look relevant.
+- BM25 scores the 10 paragraphs, and each selector keeps k of them.
+- The script counts how often **both** gold paragraphs survive.
+
+Full table: [`bench/hotpot-results.md`](bench/hotpot-results.md).
+
+| Paragraphs kept | Top-k: both gold kept | CABAR: both gold kept | CABAR tokens vs top-k |
+|---|---|---|---|
+| 2 | 31.5% | **32.7%** | 22% fewer |
+| 3 | 48.1% | **50.6%** | 20% fewer |
+| 4 | 59.4% | **62.7%** | 17% fewer |
+
+Small but consistent: a few points more evidence on fewer tokens. The gain is much smaller than on LongMemEval because HotpotQA paragraphs come from different articles and rarely repeat each other, so there's little redundancy to remove. CABAR helps most where chunks overlap: chat logs, memory stores, tickets.
+
+### 3. Answer accuracy with a 72B reader (from MetaMemory)
 
 Measured inside MetaMemory, the agent-memory system CABAR was built for. Setup: LongMemEval-S, Qwen2.5-72B-Instruct-AWQ as reader and judge, tokens counted with o200k BPE.
 
@@ -175,7 +266,7 @@ Measured inside MetaMemory, the agent-memory system CABAR was built for. Setup: 
 
 The direction is consistent (equal or better accuracy at a quarter of the tokens), but treat it as evidence, not a guarantee. Run CABAR in shadow mode on your own traffic first: log what it *would* send next to what you send now, and compare answers.
 
-### 3. Correctness
+### 4. Correctness
 
 [`test/properties.test.ts`](test/properties.test.ts) checks the guarantees on 500 random pools each:
 - The budget, `maxUnits` and the tail cap are never exceeded.
@@ -195,9 +286,10 @@ On 30,000 random selections, this package produced byte-identical output to the 
 
 **Not a fit:**
 - If you already send fewer than ~5 short chunks, there's little to trim.
-- If you need *semantic* deduplication: novelty here is lexical (word-set Jaccard). Paraphrases with different wording aren't caught. Swapping in cosine over your embeddings is the natural upgrade.
+- Pools of distinct, non-overlapping documents gain only a little (see HotpotQA above).
+- Without `similarity: embeddingSimilarity`, novelty is lexical (word-set Jaccard), so paraphrases with different wording aren't caught.
 
-**Know the quirk:** the greedy fill ranks by utility *per token*, so it prefers short chunks. When one long chunk holds the answer (a long assistant reply, a big doc section), top-k can beat it: see single-session-assistant above. Chunking documents to similar sizes, or raising `tauFloor`, keeps this in check.
+**Know the quirk:** the greedy fill ranks by utility *per token*, so it prefers short chunks. When one long chunk holds the answer (a long assistant reply, a big doc section), top-k can beat it: see single-session-assistant above. `costExponent: 0.5`, or chunking documents to similar sizes, keeps this in check.
 
 ## Design rules
 
@@ -209,10 +301,11 @@ On 30,000 random selections, this package produced byte-identical output to the 
 
 ```
 npm install
-npm test          # 73 tests (unit + property)
+npm test          # 100 tests (unit + property)
 npm run typecheck
 npm run build     # ESM + CJS + types into dist/
 npx tsx bench/evidence-recall.ts longmemeval_s_cleaned.json
+npx tsx bench/hotpot-evidence.ts hotpot_dev_distractor_v1.json
 ```
 
 ## License
