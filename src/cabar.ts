@@ -19,7 +19,8 @@
  * function of its inputs.
  */
 
-import { DEFAULT_RECENCY_DECAY_DAYS, estimateTokens, recencyDecay, stripUndefined } from './shared';
+import { CHAR4_COUNTER, DEFAULT_RECENCY_DECAY_DAYS, recencyDecay, stripUndefined, type TokenCounter } from './shared';
+import { truncateToTokens as truncateWithCounter } from './renderings';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -62,6 +63,8 @@ export interface CabarSelectOptions {
   guaranteedTokens?: number;
   /** Deterministic "current time" for recency scoring. Defaults to `new Date()`. */
   now?: Date;
+  /** Injectable token cost model. Defaults to the char/4 estimator. */
+  tokenCounter?: TokenCounter;
   /**
    * Adaptive stopping mode. When true, the greedy loop's
    * stop condition is replaced: instead of the fixed `budgetTokens`/`maxUnits`
@@ -115,7 +118,7 @@ export interface CabarSelectResult {
 
 /** Fixed-mode selector defaults. Exported so `cabar.config.ts` can source the
  * budget/maxUnits ceilings from one place instead of re-declaring the literals. */
-export const DEFAULTS: Required<Omit<CabarSelectOptions, 'now' | 'adaptive' | 'minKeep' | 'relFloor' | 'novFloor' | 'maxCeilingTokens' | 'capToMaxUnits'>> = {
+export const DEFAULTS: Required<Omit<CabarSelectOptions, 'now' | 'tokenCounter' | 'adaptive' | 'minKeep' | 'relFloor' | 'novFloor' | 'maxCeilingTokens' | 'capToMaxUnits'>> = {
   budgetTokens: 4000,
   maxUnits: 8,
   tailBudgetTokens: 600,
@@ -174,6 +177,8 @@ export class CabarSelector {
   static select(units: CabarUnit[], query: string, opts: CabarSelectOptions = {}): CabarSelectResult {
     const cfg = { ...DEFAULTS, ...stripUndefined(opts) };
     const now = opts.now ?? new Date();
+    const counter = opts.tokenCounter ?? CHAR4_COUNTER;
+    const count = (t: string) => counter.count(t);
 
     const adaptive = opts.adaptive === true;
     const minKeep = opts.minKeep ?? ADAPTIVE_DEFAULTS.minKeep;
@@ -190,7 +195,7 @@ export class CabarSelector {
     const tokensOf = new Map<string, Set<string>>();
     let candidateTokens = 0;
     for (const u of units) {
-      const cost = estimateTokens(u.content);
+      const cost = count(u.content);
       costOf.set(u.id, cost);
       tokensOf.set(u.id, tokenize(u.content));
       candidateTokens += cost;
@@ -298,14 +303,18 @@ export class CabarSelector {
     // can cost MORE than the content it replaces. The summary must never
     // exceed the verbatim tail content: build both candidates, emit the
     // cheaper, and hard-cap at tailBudgetTokens either way.
-    const extractive = buildTailSummary(tail, query, cfg.tailBudgetTokens);
+    const extractive = buildTailSummary(tail, query, cfg.tailBudgetTokens, count);
     const verbatim = tail.map((u) => u.content.trim()).join('\n');
     let tailSummary =
-      tail.length === 0 ? '' : estimateTokens(verbatim) < estimateTokens(extractive) ? verbatim : extractive;
-    if (estimateTokens(tailSummary) > cfg.tailBudgetTokens) {
-      tailSummary = truncateToTokens(tailSummary, cfg.tailBudgetTokens);
+      tail.length === 0 ? '' : count(verbatim) < count(extractive) ? verbatim : extractive;
+    if (count(tailSummary) > cfg.tailBudgetTokens) {
+      // char/4 keeps its original character cut; a real tokenizer gets a word-by-word cut.
+      tailSummary =
+        counter === CHAR4_COUNTER
+          ? truncateToTokens(tailSummary, cfg.tailBudgetTokens)
+          : truncateWithCounter(tailSummary, cfg.tailBudgetTokens, counter);
     }
-    const tailSummaryTokens = estimateTokens(tailSummary);
+    const tailSummaryTokens = count(tailSummary);
 
     return {
       selected,
@@ -351,7 +360,12 @@ function truncateToTokens(text: string, budgetTokens: number): string {
  * deterministic across runs for the same inputs). Exact-normalized-text dedup
  * drops near-identical sentences. No LLM call.
  */
-function buildTailSummary(tail: CabarUnit[], query: string, tailBudgetTokens: number): string {
+function buildTailSummary(
+  tail: CabarUnit[],
+  query: string,
+  tailBudgetTokens: number,
+  count: (text: string) => number,
+): string {
   if (tail.length === 0 || tailBudgetTokens <= 0) return '';
 
   const queryTokens = tokenize(query);
@@ -392,7 +406,7 @@ function buildTailSummary(tail: CabarUnit[], query: string, tailBudgetTokens: nu
 
     const idPart = s.timestamp ? `${s.unitId}@${s.timestamp.toISOString().slice(0, 10)}` : s.unitId;
     const line = `[${idPart}] ${s.text}`;
-    const lineTokens = estimateTokens(lines.length === 0 ? line : `\n${line}`);
+    const lineTokens = count(lines.length === 0 ? line : `\n${line}`);
 
     if (usedTokens + lineTokens > tailBudgetTokens) break; // greedy fill stops at the budget
 

@@ -29,21 +29,14 @@
  *     silently dropped.
  */
 
-import { DEFAULT_RECENCY_DECAY_DAYS, estimateTokens, recencyDecay, stripUndefined } from './shared';
+import { CHAR4_COUNTER, DEFAULT_RECENCY_DECAY_DAYS, recencyDecay, stripUndefined, type TokenCounter } from './shared';
 import { extract, mention, claimsRendering, verbatim, tokenize, jaccard, truncateToTokens } from './renderings';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-/**
- * A pluggable token counter. Defaults to the char/4 estimator; inject a real
- * BPE tokenizer (e.g. `gpt-tokenizer`, tiktoken) for exact costs.
- */
-export interface TokenCounter {
-  name: string;
-  count(text: string): number;
-}
+export type { TokenCounter } from './shared';
 
 /** The four rendering fidelities, most→least faithful. */
 export type Fidelity = 'verbatim' | 'extract' | 'claims' | 'mention';
@@ -187,8 +180,6 @@ const DEFAULT_FIDELITY_FACTORS: FidelityFactors = {
   mention: 0.3,
 };
 
-/** Provider-agnostic default counter: the char/4 heuristic. */
-const CHAR4_COUNTER: TokenCounter = { name: 'char4', count: estimateTokens };
 
 const MS_PER_DAY = 86_400_000;
 

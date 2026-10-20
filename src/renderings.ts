@@ -17,7 +17,8 @@
  * on the unit — this module never fetches them.
  */
 
-import type { PrismUnit, TokenCounter } from './prism';
+import type { PrismUnit } from './prism';
+import type { TokenCounter } from './shared';
 
 // ---------------------------------------------------------------------------
 // Constants

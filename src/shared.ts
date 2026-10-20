@@ -7,12 +7,24 @@
  *
  * Not a real tokenizer. Deliberately cheap and provider-agnostic (no
  * dependency on any one model's BPE vocabulary): good enough for budget
- * heuristics, not for exact billing. Pass your own `TokenCounter` to
- * `PrismSelector` when you need exact counts.
+ * heuristics, not for exact billing. Pass your own `TokenCounter` to either
+ * selector when you need exact counts.
  */
 export function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4);
 }
+
+/**
+ * A pluggable token counter. Defaults to the char/4 estimator; inject a real
+ * BPE tokenizer (e.g. `gpt-tokenizer`, tiktoken) for exact costs.
+ */
+export interface TokenCounter {
+  name: string;
+  count(text: string): number;
+}
+
+/** Provider-agnostic default counter: the char/4 heuristic. */
+export const CHAR4_COUNTER: TokenCounter = { name: 'char4', count: estimateTokens };
 
 /** Default recency scale in days: score = e^(-age / 365). */
 export const DEFAULT_RECENCY_DECAY_DAYS = 365;

@@ -278,3 +278,25 @@ describe('CabarSelector.select', () => {
     });
   });
 });
+
+describe('CabarSelector tokenCounter', () => {
+  const words = { name: 'words', count: (t: string) => t.split(/\s+/).filter(Boolean).length };
+  const units: CabarUnit[] = Array.from({ length: 10 }, (_, i) => ({
+    id: `u${i}`,
+    content: `unit ${i} talks about topic${i} with some filler words to give it length number ${i}.`,
+    score: 1 - i * 0.05,
+  }));
+
+  it('costs units with the injected counter and respects the budget in its units', () => {
+    const r = CabarSelector.select(units, 'topic', { tokenCounter: words, budgetTokens: 40, maxUnits: 10 });
+    const used = r.selected.reduce((n, u) => n + words.count(u.content), 0);
+    expect(r.stats.selectedTokens).toBe(used);
+    expect(used).toBeLessThanOrEqual(40);
+    expect(r.stats.tailSummaryTokens).toBe(words.count(r.tailSummary));
+  });
+
+  it('caps the tail with the injected counter', () => {
+    const r = CabarSelector.select(units, 'topic', { tokenCounter: words, maxUnits: 1, tailBudgetTokens: 20 });
+    expect(words.count(r.tailSummary)).toBeLessThanOrEqual(20);
+  });
+});
