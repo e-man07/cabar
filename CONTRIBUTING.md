@@ -7,4 +7,4 @@ Issues and PRs are welcome.
 - New options must be opt-in and leave the default output byte-identical.
 - Before opening a PR: `npm test && npm run typecheck`.
 
-Good first contributions: cosine-similarity novelty over caller-supplied embeddings, a Python port, a benchmark on another dataset (LoCoMo, your own traffic).
+Good first contributions: a Python port, adapters for other frameworks (LlamaIndex.TS, Mastra), a benchmark on another dataset (LoCoMo, your own traffic), an LLM-accuracy harness that runs from this repo.
